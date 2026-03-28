@@ -5,6 +5,8 @@
 
 Homebridge plugin for controlling Mertik / Maxitrol WiFi fireplace controllers with a Home app layout that works better alongside the MyFire app.
 
+![Sample fireplace controller](.img/sample.jpg)
+
 ## What This Fork Changes
 
 This fork is based on the original [`tritter/homebridge-mertik-fireplace`](https://github.com/tritter/homebridge-mertik-fireplace) project and keeps the original Apache-2.0 license.
@@ -40,6 +42,8 @@ Each configured fireplace is exposed as separate accessories:
 npm install -g --unsafe-perm homebridge-mertik-fireplace-myfire
 ```
 
+You can also install it from the Homebridge UI plugin search once npm indexing catches up.
+
 For Homebridge v2 beta:
 
 ```bash
@@ -67,6 +71,16 @@ Update your Homebridge `config.json`:
 }
 ```
 
+## Migration From The Original Plugin
+
+If you are moving from `homebridge-mertik-fireplace` or an earlier local custom build:
+
+1. Remove the old fireplace accessories from Apple Home.
+2. Uninstall the old plugin package from Homebridge.
+3. Install `homebridge-mertik-fireplace-myfire`.
+4. Update your config to use `"platform": "MertikFireplaceMyFire"`.
+5. Restart Homebridge and add the accessories again.
+
 ## Configuration Options
 
 | Key | Default | Description |
@@ -81,6 +95,7 @@ Update your Homebridge `config.json`:
 - Flame level changes only apply while the fireplace is already in Manual mode.
 - Target temperature changes only apply while the fireplace is in Temperature mode.
 - The plugin expects each fireplace controller to keep a stable IP address.
+- Apple Home will show the mode selector as a thermostat-style control because HomeKit does not provide a native three-state mode selector service.
 
 ## Legal
 
