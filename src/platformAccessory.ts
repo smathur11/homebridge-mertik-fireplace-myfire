@@ -1,200 +1,374 @@
-import { CharacteristicValue, PlatformAccessory } from 'homebridge';
-import { IFireplaceController, FireplaceController } from './controllers/fireplaceController';
-import { IRequestController, RequestController } from './controllers/requestController';
-import { IServiceController, ServiceController } from './controllers/serviceController';
-import { AuxModeUtils } from './models/auxMode';
+import { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
+import { FireplaceController, IFireplaceController } from './controllers/fireplaceController';
+import { RequestController, IRequestController } from './controllers/requestController';
+import { IDeviceConfig } from './models/deviceConfig';
 import { FireplaceStatus } from './models/fireplaceStatus';
-import { FlameHeight, FlameHeightUtils } from './models/flameHeight';
-import { OperationMode, OperationModeUtils } from './models/operationMode';
+import { FlameHeightUtils } from './models/flameHeight';
+import { OperationMode } from './models/operationMode';
 import { MertikPlatform } from './platform';
 
-/**
- * Platform Accessory
- * An instance of this class is created for each accessory your platform registers
- * Each accessory may expose multiple services of different service types.
- */
-export class FireplacePlatformAccessory {
-  private readonly fireplace: IFireplaceController;
-  private readonly request: IRequestController;
-  private readonly service: IServiceController;
+export type FireplaceAccessoryRole = 'power' | 'mode' | 'target-temperature' | 'flame' | 'connected';
 
+export interface FireplaceAccessoryContext {
+  device: IDeviceConfig;
+  role: FireplaceAccessoryRole;
+}
+
+interface SharedFireplaceDevice {
+  fireplace: IFireplaceController;
+  request: IRequestController;
+}
+
+const FLAME_LEVEL_COUNT = 12;
+const FLAME_LEVEL_PERCENT_STEP = 100 / (FLAME_LEVEL_COUNT - 1);
+const FLAME_LEVEL_TEMPERATURES = Array.from({ length: FLAME_LEVEL_COUNT }, (_, index) => 5 + ((31 * index) / (FLAME_LEVEL_COUNT - 1)));
+const FLAME_LEVEL_PERCENTAGES = Array.from({ length: FLAME_LEVEL_COUNT }, (_, index) => index * FLAME_LEVEL_PERCENT_STEP);
+
+export class FireplacePlatformAccessory {
   constructor(
     private readonly platform: MertikPlatform,
-    accessory: PlatformAccessory,
+    private readonly accessory: PlatformAccessory<FireplaceAccessoryContext>,
+    private readonly shared: SharedFireplaceDevice,
   ) {
-    this.fireplace = new FireplaceController(platform.log, accessory);
-    this.service = new ServiceController(platform.log, accessory, platform);
-    this.request = new RequestController(platform.log, this.fireplace, this.isLocked());
-    this.subscribeFireplace();
-    this.subscribeService();
+    this.configureAccessoryInformation();
+    this.cleanupServices();
+    this.configureRole();
   }
 
-  private isLocked(): boolean {
-    return this.service.lockControlsCharacteristic()?.value === this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED;
+  static createSharedDevice(platform: MertikPlatform, device: IDeviceConfig): SharedFireplaceDevice {
+    const fireplace = new FireplaceController(platform.log, device);
+    const request = new RequestController(platform.log, fireplace, false);
+    return { fireplace, request };
   }
 
-  subscribeFireplace() {
-    this.fireplace.on('status', (status) => {
-      this.platform.log.info(`Received status - ${status}`);
-      this.updateActive(status);
-      if (!status.igniting && !status.shutdown) {
-        this.updateCurrentHeatingCoolerState(status);
-        this.updateTargetHeatingCoolerState(status);
-        this.updateCurrentTemperature(status);
+  private configureAccessoryInformation() {
+    this.accessory.getService(this.platform.Service.AccessoryInformation)!
+      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Mertik')
+      .setCharacteristic(this.platform.Characteristic.Model, 'B6R-WME')
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.accessory.UUID)
+      .setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+  }
+
+  private cleanupServices() {
+    const desiredUuid = this.desiredServiceUuid();
+    for (const service of [...this.accessory.services]) {
+      if (service.UUID === this.platform.Service.AccessoryInformation.UUID) {
+        continue;
       }
-      this.updateSwingMode(status);
-      this.updateHeatingThresholdTemperature(status);
+      if (service.UUID !== desiredUuid) {
+        this.accessory.removeService(service);
+      }
+    }
+  }
+
+  private desiredServiceUuid(): string {
+    switch (this.accessory.context.role) {
+      case 'power':
+        return this.platform.Service.Switch.UUID;
+      case 'mode':
+      case 'target-temperature':
+        return this.platform.Service.Thermostat.UUID;
+      case 'flame':
+        return this.platform.Service.Fan.UUID;
+      case 'connected':
+        return this.platform.Service.ContactSensor.UUID;
+    }
+  }
+
+  private configureRole() {
+    switch (this.accessory.context.role) {
+      case 'power':
+        this.configurePowerAccessory();
+        break;
+      case 'mode':
+        this.configureModeAccessory();
+        break;
+      case 'target-temperature':
+        this.configureTargetTemperatureAccessory();
+        break;
+      case 'flame':
+        this.configureFlameAccessory();
+        break;
+      case 'connected':
+        this.configureConnectedAccessory();
+        break;
+    }
+  }
+
+  private configurePowerAccessory() {
+    const service = this.getOrAddService(this.platform.Service.Switch, 'power');
+    service.setPrimaryService();
+    service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    const on = service.getCharacteristic(this.platform.Characteristic.On);
+    on.onGet(() => this.powerValue(this.getStatus()));
+    on.onSet((value) => {
+      const status = this.getStatus();
+      if ((value as boolean) && this.effectiveMode(status) === OperationMode.Off) {
+        this.shared.request.setMode(OperationMode.Manual);
+      } else if (!(value as boolean) && this.effectiveMode(status) !== OperationMode.Off) {
+        this.shared.request.setMode(OperationMode.Off);
+      }
+      this.syncPower(service);
     });
-    this.fireplace.on('reachable', (reachable) =>{
-      this.updateReachable(reachable);
+
+    this.shared.fireplace.on('status', (status) => {
+      on.updateValue(this.powerValue(status));
     });
   }
 
-  subscribeService() {
-    this.service.activeCharacteristic()
-      .onGet(() => this.activeValue(this.getStatus()))
-      .onSet((value) => {
-        this.platform.log.debug('activeCharacteristic onSet');
-        const status = this.getStatus();
-        if (value === this.platform.Characteristic.Active.ACTIVE && status.mode === OperationMode.Off
-          || value === this.platform.Characteristic.Active.INACTIVE && status.mode !== OperationMode.Off) {
-          this.request.setMode(OperationModeUtils.ofActive(this.platform, value,
-            this.service.targetHeaterCoolerStateCharacteristic().value || this.platform.Characteristic.TargetHeaterCoolerState.AUTO));
-        }
-      });
-    this.service.currentHeaterCoolerStateCharacteristic()
-      .onGet(() => this.heaterCoolerStateValue(this.getStatus()));
+  private configureModeAccessory() {
+    const service = this.getOrAddService(this.platform.Service.Thermostat, 'mode-selector');
+    service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    const currentState = service.getCharacteristic(this.platform.Characteristic.CurrentHeatingCoolingState);
+    const targetState = service.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState);
+    const currentTemperature = service.getCharacteristic(this.platform.Characteristic.CurrentTemperature);
+    const targetTemperature = service.getCharacteristic(this.platform.Characteristic.TargetTemperature);
+    const displayUnits = service.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits);
 
-    this.service.targetHeaterCoolerStateCharacteristic()
-      .onGet(() => this.targetHeaterCoolerStateValue(this.getStatus()))
-      .onSet((value) => {
-        this.platform.log.debug('targetHeaterCoolerStateCharacteristic onSet');
-        this.request.setMode(OperationModeUtils.ofHeaterCoolerState(this.platform, value));
-      });
+    targetState.setProps({
+      validValues: [
+        this.platform.Characteristic.TargetHeatingCoolingState.AUTO,
+        this.platform.Characteristic.TargetHeatingCoolingState.HEAT,
+        this.platform.Characteristic.TargetHeatingCoolingState.COOL,
+      ],
+    });
 
-    this.service.lockControlsCharacteristic()
-      .onGet(() => this.request.isLocked())
-      .onSet((value) => value === this.platform.Characteristic.LockPhysicalControls.CONTROL_LOCK_ENABLED ?
-        this.request.lock() : this.request.unlock());
+    targetTemperature.setProps({
+      minValue: 5,
+      maxValue: 36,
+      minStep: 0.5,
+    });
 
-    this.service.swingModeCharacteristic()
-      .onGet(() => this.swingModeValue(this.getStatus()))
-      .onSet((value) => this.request.setAux(AuxModeUtils.fromSwingMode(this.platform, value)));
+    currentState.onGet(() => this.modeCurrentHeatingCoolingStateValue(this.getStatus()));
+    targetState.onGet(() => this.modeTargetHeatingCoolingStateValue(this.getStatus()));
+    targetState.onSet((value) => {
+      this.shared.request.setMode(this.operationModeFromHeatingCoolingState(value));
+    });
+    currentTemperature.onGet(() => this.displayCurrentTemperatureValue(this.getStatus()));
+    targetTemperature.onGet(() => this.targetTemperatureValue(this.getStatus()));
+    targetTemperature.onSet(() => undefined);
+    displayUnits.onGet(() => this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS);
+    displayUnits.onSet(() => undefined);
 
-    this.service.heatingThresholdTemperatureCharacteristic()
-      .onGet(() => this.targetHeatingThresholdValue(this.getStatus()))
-      .onSet((value) => {
-        this.request.setTemperature(value as number);
-      });
-    this.service.reachableCharacteristic()
-      .onGet(() => this.reachableValue(this.fireplace.reachable()));
+    this.shared.fireplace.on('status', (status) => {
+      currentState.updateValue(this.modeCurrentHeatingCoolingStateValue(status));
+      targetState.updateValue(this.modeTargetHeatingCoolingStateValue(status));
+      currentTemperature.updateValue(this.displayCurrentTemperatureValue(status));
+      targetTemperature.updateValue(this.targetTemperatureValue(status));
+    });
+  }
+
+  private configureTargetTemperatureAccessory() {
+    const service = this.getOrAddService(this.platform.Service.Thermostat, 'target-temperature');
+    service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    const currentState = service.getCharacteristic(this.platform.Characteristic.CurrentHeatingCoolingState);
+    const targetState = service.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState);
+    const currentTemperature = service.getCharacteristic(this.platform.Characteristic.CurrentTemperature);
+    const targetTemperature = service.getCharacteristic(this.platform.Characteristic.TargetTemperature);
+    const displayUnits = service.getCharacteristic(this.platform.Characteristic.TemperatureDisplayUnits);
+
+    targetState.setProps({
+      validValues: [this.platform.Characteristic.TargetHeatingCoolingState.AUTO],
+    });
+    targetTemperature.setProps({
+      minValue: 5,
+      maxValue: 36,
+      minStep: 0.5,
+    });
+
+    currentState.onGet(() => this.targetTemperatureCurrentHeatingCoolingStateValue(this.getStatus()));
+    targetState.onGet(() => this.platform.Characteristic.TargetHeatingCoolingState.AUTO);
+    targetState.onSet(() => undefined);
+    currentTemperature.onGet(() => this.displayCurrentTemperatureValue(this.getStatus()));
+    targetTemperature.onGet(() => this.targetTemperatureValue(this.getStatus()));
+    targetTemperature.onSet((value) => {
+      const status = this.getStatus();
+      if (this.effectiveMode(status) !== OperationMode.Temperature) {
+        this.platform.log.debug('Ignoring target temperature change outside temperature mode');
+        return;
+      }
+      this.shared.request.setTemperature(value as number);
+    });
+    displayUnits.onGet(() => this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS);
+    displayUnits.onSet(() => undefined);
+
+    this.shared.fireplace.on('status', (status) => {
+      currentState.updateValue(this.targetTemperatureCurrentHeatingCoolingStateValue(status));
+      currentTemperature.updateValue(this.displayCurrentTemperatureValue(status));
+      targetTemperature.updateValue(this.targetTemperatureValue(status));
+    });
+  }
+
+  private configureFlameAccessory() {
+    const service = this.getOrAddService(this.platform.Service.Fan, 'flame-level');
+    service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    const on = service.getCharacteristic(this.platform.Characteristic.On);
+    const speed = service.getCharacteristic(this.platform.Characteristic.RotationSpeed);
+    speed.setProps({
+      minValue: 0,
+      maxValue: 100,
+      minStep: FLAME_LEVEL_PERCENT_STEP,
+    });
+
+    on.onGet(() => this.flameActiveValue(this.getStatus()));
+    on.onSet(() => undefined);
+    speed.onGet(() => this.flameLevelValue(this.getStatus()));
+    speed.onSet((value) => {
+      const status = this.getStatus();
+      if (this.effectiveMode(status) !== OperationMode.Manual) {
+        this.platform.log.debug('Ignoring flame level change outside manual mode');
+        return;
+      }
+      this.shared.request.setTemperature(this.temperatureFromFlameLevel(value as number));
+    });
+
+    this.shared.fireplace.on('status', (status) => {
+      on.updateValue(this.flameActiveValue(status));
+      speed.updateValue(this.flameLevelValue(status));
+    });
+  }
+
+  private configureConnectedAccessory() {
+    const service = this.getOrAddService(this.platform.Service.ContactSensor, 'reachable');
+    service.setCharacteristic(this.platform.Characteristic.Name, this.accessory.displayName);
+    const state = service.getCharacteristic(this.platform.Characteristic.ContactSensorState);
+    state.onGet(() => this.reachableValue(this.shared.fireplace.reachable()));
+    this.shared.fireplace.on('reachable', (reachable) => {
+      state.updateValue(this.reachableValue(reachable));
+    });
+  }
+
+  private getOrAddService(serviceConstructor: typeof Service & { UUID: string }, subtype: string) {
+    return this.accessory.getServiceById(serviceConstructor, subtype)
+      || this.accessory.addService(serviceConstructor, this.accessory.displayName, subtype);
   }
 
   private getStatus(): FireplaceStatus {
-    if (!this.fireplace.reachable()) {
-      this.platform.log.debug('Device not connected!');
+    if (!this.shared.fireplace.reachable()) {
       throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
     }
-    const status = this.fireplace.status();
+    const status = this.shared.fireplace.status();
     if (!status) {
       throw new this.platform.api.hap.HapStatusError(this.platform.api.hap.HAPStatus.RESOURCE_BUSY);
     }
-    return status!;
+    return status;
   }
 
-  // Update handlers
-
-  private updateReachable(reachable: boolean) {
-    this.service.reachableCharacteristic().updateValue(this.reachableValue(reachable));
+  private syncPower(service: Service) {
+    service.getCharacteristic(this.platform.Characteristic.On).updateValue(this.powerValue(this.getStatus()));
   }
 
-  private updateActive(status: FireplaceStatus) {
-    this.service.activeCharacteristic().updateValue(this.activeValue(status));
+  private effectiveMode(status: FireplaceStatus): OperationMode {
+    const currentRequest = this.shared.request.currentRequest();
+    if (currentRequest?.mode !== undefined) {
+      return currentRequest.mode;
+    }
+    return status.mode;
   }
 
-  private updateCurrentHeatingCoolerState(status: FireplaceStatus) {
-    this.service.currentHeaterCoolerStateCharacteristic().updateValue(this.heaterCoolerStateValue(status));
+  private effectiveTargetTemperature(status: FireplaceStatus): number {
+    const currentRequest = this.shared.request.currentRequest();
+    if (currentRequest?.temperature !== undefined) {
+      return currentRequest.temperature;
+    }
+    return status.targetTemperature;
   }
 
-  private updateTargetHeatingCoolerState(status: FireplaceStatus) {
-    this.service.targetHeaterCoolerStateCharacteristic().updateValue(this.targetHeaterCoolerStateValue(status));
+  private powerValue(status: FireplaceStatus): CharacteristicValue {
+    return this.effectiveMode(status) !== OperationMode.Off;
   }
 
-  private updateCurrentTemperature(status: FireplaceStatus) {
-    this.service.currentTemperatureCharacteristic().updateValue(status.currentTemperature > 100 ? 20 : status.currentTemperature);
+  private modeCurrentHeatingCoolingStateValue(status: FireplaceStatus): CharacteristicValue {
+    const mode = this.effectiveMode(status);
+    switch (mode) {
+      case OperationMode.Manual:
+      case OperationMode.Temperature:
+        return this.platform.Characteristic.CurrentHeatingCoolingState.HEAT;
+      case OperationMode.Eco:
+        return this.platform.Characteristic.CurrentHeatingCoolingState.COOL;
+      default:
+        return this.platform.Characteristic.CurrentHeatingCoolingState.OFF;
+    }
   }
 
-  private updateSwingMode(status: FireplaceStatus) {
-    this.service.swingModeCharacteristic().updateValue(this.swingModeValue(status));
+  private modeTargetHeatingCoolingStateValue(status: FireplaceStatus): CharacteristicValue {
+    switch (this.effectiveMode(status)) {
+      case OperationMode.Manual:
+        return this.platform.Characteristic.TargetHeatingCoolingState.HEAT;
+      case OperationMode.Eco:
+        return this.platform.Characteristic.TargetHeatingCoolingState.COOL;
+      default:
+        return this.platform.Characteristic.TargetHeatingCoolingState.AUTO;
+    }
   }
 
-  private updateHeatingThresholdTemperature(status: FireplaceStatus) {
-    this.service.heatingThresholdTemperatureCharacteristic().updateValue(this.targetHeatingThresholdValue(status));
+  private operationModeFromHeatingCoolingState(value: CharacteristicValue): OperationMode {
+    if (value === this.platform.Characteristic.TargetHeatingCoolingState.HEAT) {
+      return OperationMode.Manual;
+    }
+    if (value === this.platform.Characteristic.TargetHeatingCoolingState.COOL) {
+      return OperationMode.Eco;
+    }
+    return OperationMode.Temperature;
   }
 
-  // CharacteristicValues
+  private displayCurrentTemperatureValue(status: FireplaceStatus): CharacteristicValue {
+    return status.currentTemperature > 100 ? 20 : status.currentTemperature;
+  }
+
+  private targetTemperatureValue(status: FireplaceStatus): CharacteristicValue {
+    return this.effectiveTargetTemperature(status);
+  }
+
+  private targetTemperatureCurrentHeatingCoolingStateValue(status: FireplaceStatus): CharacteristicValue {
+    return this.effectiveMode(status) === OperationMode.Temperature
+      ? this.platform.Characteristic.CurrentHeatingCoolingState.HEAT
+      : this.platform.Characteristic.CurrentHeatingCoolingState.OFF;
+  }
+
+  private flameActiveValue(status: FireplaceStatus): CharacteristicValue {
+    return this.effectiveMode(status) === OperationMode.Manual;
+  }
+
+  private flameLevelValue(status: FireplaceStatus): CharacteristicValue {
+    if (this.effectiveMode(status) !== OperationMode.Manual) {
+      return 0;
+    }
+    const currentRequest = this.shared.request.currentRequest();
+    if (currentRequest?.temperature !== undefined) {
+      return this.flameLevelFromTemperature(currentRequest.temperature);
+    }
+    return FlameHeightUtils.toPercentage(this.shared.fireplace.getFlameHeight()) * 100;
+  }
+
+  private flameLevelFromTemperature(temperature: number): number {
+    let closestIndex = 0;
+    let smallestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < FLAME_LEVEL_TEMPERATURES.length; index++) {
+      const distance = Math.abs(FLAME_LEVEL_TEMPERATURES[index] - temperature);
+      if (distance < smallestDistance) {
+        smallestDistance = distance;
+        closestIndex = index;
+      }
+    }
+    return FLAME_LEVEL_PERCENTAGES[closestIndex];
+  }
+
+  private temperatureFromFlameLevel(level: number): number {
+    let closestIndex = 0;
+    let smallestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < FLAME_LEVEL_PERCENTAGES.length; index++) {
+      const distance = Math.abs(FLAME_LEVEL_PERCENTAGES[index] - level);
+      if (distance < smallestDistance) {
+        smallestDistance = distance;
+        closestIndex = index;
+      }
+    }
+    return FLAME_LEVEL_TEMPERATURES[closestIndex];
+  }
 
   private reachableValue(reachable: boolean): CharacteristicValue {
     return reachable ? this.platform.Characteristic.ContactSensorState.CONTACT_DETECTED
       : this.platform.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED;
-  }
-
-  private activeValue(status: FireplaceStatus): CharacteristicValue {
-    const currentRequest = this.request.currentRequest();
-    let mode = status.mode;
-    if (currentRequest?.mode) {
-      const requestedMode = currentRequest?.mode || OperationMode.Manual;
-      // Override mode with requested mode to not flicker the interface.
-      mode = requestedMode;
-    }
-    return OperationModeUtils.toActive(this.platform, mode, status.igniting, status.shuttingDown);
-  }
-
-  private swingModeValue(status: FireplaceStatus): CharacteristicValue {
-    const currentRequest = this.request.currentRequest();
-    if (currentRequest?.auxOn) {
-      const requestedAux = currentRequest?.auxOn || false;
-      return AuxModeUtils.toSwingMode(this.platform, requestedAux);
-    }
-    return AuxModeUtils.toSwingMode(this.platform, status.auxOn);
-  }
-
-  private heaterCoolerStateValue(status: FireplaceStatus): CharacteristicValue {
-    const currentRequest = this.request.currentRequest();
-    if (currentRequest?.mode) {
-      const requestedMode = currentRequest?.mode || OperationMode.Manual;
-      return OperationModeUtils.toHeatingCoolerState(this.platform, requestedMode, status.guardFlameOn);
-    }
-    return OperationModeUtils.toHeatingCoolerState(this.platform, status.mode, status.guardFlameOn);
-  }
-
-  private targetHeaterCoolerStateValue(status: FireplaceStatus): CharacteristicValue {
-    const currentRequest = this.request.currentRequest();
-    if (currentRequest?.mode) {
-      const requestedMode = currentRequest?.mode || OperationMode.Manual;
-      return OperationModeUtils.toTargetHeaterCoolerState(this.platform, requestedMode);
-    }
-    return OperationModeUtils.toTargetHeaterCoolerState(this.platform, status.mode);
-  }
-
-  private targetHeatingThresholdValue(status: FireplaceStatus): CharacteristicValue {
-    const currentRequest = this.request.currentRequest();
-    if (currentRequest?.temperature && currentRequest?.height) {
-      let operationMode = status.mode;
-      if (currentRequest?.mode) {
-        operationMode = currentRequest?.mode || OperationMode.Manual;
-      }
-      let targetTemperature = currentRequest?.temperature || 36;
-      if (operationMode === OperationMode.Manual) {
-        targetTemperature = Math.round((FlameHeightUtils
-          .toPercentage(currentRequest?.height || FlameHeight.Step11) * 31 + 5));
-      }
-      return targetTemperature;
-    }
-    let targetTemperature = status.targetTemperature;
-    if (status.mode === OperationMode.Manual) {
-      targetTemperature = Math.round((FlameHeightUtils.toPercentage(this.fireplace.getFlameHeight()) * 31 + 5));
-    }
-    return targetTemperature;
   }
 }

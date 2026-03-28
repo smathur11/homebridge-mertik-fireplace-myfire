@@ -15,18 +15,23 @@ export enum FlameHeight {
   }
 
 export class FlameHeightUtils {
+  private static readonly definedValues: FlameHeight[] = Object.values(FlameHeight)
+    .filter((value): value is FlameHeight => value !== FlameHeight.StepUndefined);
+
   public static ofPercentage(value: number) : FlameHeight {
-    const keys = Object.keys(FlameHeight);
-    const fullSteps = keys.length - 1;
-    const factorStep = value * fullSteps;
-    const index = Math.ceil(factorStep);
-    return Object.values(FlameHeight)[index];
+    const clamped = Math.max(0, Math.min(1, value));
+    const fullSteps = FlameHeightUtils.definedValues.length - 1;
+    const factorStep = clamped * fullSteps;
+    const index = Math.round(factorStep);
+    return FlameHeightUtils.definedValues[index];
   }
 
   public static toPercentage(height: FlameHeight) : number {
-    const values = Object.values(FlameHeight);
-    const index: number = values.indexOf(height);
-    const oneStep = 100 / (values.length - 1);
+    const index = FlameHeightUtils.definedValues.indexOf(height);
+    if (index < 0) {
+      return 0;
+    }
+    const oneStep = 100 / (FlameHeightUtils.definedValues.length - 1);
     return (index * oneStep) / 100;
   }
 }

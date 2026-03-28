@@ -16,6 +16,7 @@ export interface IRequestController {
 export class RequestController implements IRequestController{
   private busy = false;
   private scheduledRequest?: IRequest;
+  private scheduledDelay = 10_000;
   private sendTask?: NodeJS.Timeout;
   private lockTask?: NodeJS.Timeout;
 
@@ -60,15 +61,15 @@ export class RequestController implements IRequestController{
   }
 
   setAux(on: boolean) {
-    this.scheduleRequest({auxOn: on});
+    this.scheduleRequest({auxOn: on}, 500);
   }
 
   setMode(mode: OperationMode) {
-    this.scheduleRequest({mode});
+    this.scheduleRequest({mode}, 500);
   }
 
   setTemperature(temperature: number) {
-    this.scheduleRequest({temperature});
+    this.scheduleRequest({temperature}, 500);
   }
 
   clearScheduledTask() {
@@ -76,14 +77,16 @@ export class RequestController implements IRequestController{
     this.sendTask = undefined;
   }
 
-  private scheduleRequest(request: IRequest) {
-    if (this.sendTask) {
+  private scheduleRequest(request: IRequest, delay = 10_000) {
+    const hasExistingTask = this.sendTask !== undefined;
+    if (hasExistingTask) {
       this.clearScheduledTask();
     }
 
     const mergedRequest = this.scheduledRequest ? {...this.scheduledRequest, ...request} : request;
     this.scheduledRequest = mergedRequest;
-    this.sendTask = setTimeout(() => this.sendRequest(mergedRequest), 10_000);
+    this.scheduledDelay = hasExistingTask ? Math.min(this.scheduledDelay, delay) : delay;
+    this.sendTask = setTimeout(() => this.sendRequest(mergedRequest), this.scheduledDelay);
   }
 
   private async sendRequest(request: IRequest, retry = false) {
@@ -104,9 +107,10 @@ export class RequestController implements IRequestController{
     this.busy = true;
     const success = await this.fireplace.request(request);
     if (!success) {
-      this.scheduleRequest(request);
+      this.scheduleRequest(request, this.scheduledDelay);
     }
     this.scheduledRequest = undefined;
+    this.scheduledDelay = 10_000;
     this.busy = false;
   }
 }

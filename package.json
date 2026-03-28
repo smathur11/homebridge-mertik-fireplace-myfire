@@ -1,21 +1,27 @@
 {
-  "displayName": "Mertik Fireplace",
-  "name": "homebridge-mertik-fireplace",
-  "version": "1.5.0-beta.1",
+  "displayName": "Homebridge Mertik Fireplace MyFire",
+  "name": "homebridge-mertik-fireplace-myfire",
+  "version": "1.0.0",
   "description": "Controls Mertik Fireplace Wifi controllers, connecting real fire with Homebridge.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/tritter/homebridge-mertik-fireplace.git"
+    "url": "git://github.com/smathur11/homebridge-mertik-fireplace-myfire.git"
   },
   "bugs": {
-    "url": "https://github.com/tritter/homebridge-mertik-fireplace/issues"
+    "url": "https://github.com/smathur11/homebridge-mertik-fireplace-myfire/issues"
   },
   "engines": {
     "node": ">=18.20.0",
     "homebridge": "^1.11.0 || ^2.0.0-beta.0"
   },
   "main": "dist/index.js",
+  "files": [
+    "dist",
+    "config.schema.json",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "watch": "npm run build && npm link && nodemon",

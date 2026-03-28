@@ -4,7 +4,7 @@ import net, { Socket } from 'net';
 import { FireplaceStatus } from '../models/fireplaceStatus';
 import { OperationMode, OperationModeUtils } from '../models/operationMode';
 import { FlameHeight, FlameHeightUtils } from '../models/flameHeight';
-import { Logger, PlatformAccessory } from 'homebridge';
+import { Logger } from 'homebridge';
 import { TemperatureRangeUtils } from '../models/temperatureRange';
 import { IRequest } from '../models/request';
 
@@ -34,12 +34,16 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   private static UNREACHABLE_TIMEOUT = 1000 * 60 * 5; //5 min
   private static REFRESH_TIMEOUT = 1000 * 15; //15 seconds
   private static STATUS_PACKET_LENGTH = 106; //characters
+  private static MODE_CHANGE_DELAY = 500;
+  private static FLAME_RESET_DELAY = 1000;
+  private static COMMAND_SETTLE_DELAY = 500;
+  private static MODE_SETTLE_DELAY = 1000;
 
   constructor(
     public readonly log: Logger,
-    public readonly accessory: PlatformAccessory) {
+    config: IDeviceConfig) {
     super();
-    this.config = this.accessory.context.device;
+    this.config = config;
     this.startStatusSubscription();
   }
 
@@ -187,10 +191,10 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     this.log.info(`Set flame height to ${height.toString()}`);
     this.height = height;
     this.resetFlameHeight();
-    await this.delay(10_000);
+    await this.delay(FireplaceController.FLAME_RESET_DELAY);
     const msg = '3136' + height + '03';
     this.sendCommand(msg);
-    await this.delay(1_000);
+    await this.delay(FireplaceController.COMMAND_SETTLE_DELAY);
   }
 
   public getFlameHeight(): FlameHeight {
@@ -200,12 +204,12 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   public async setTemperature(temperature: number) {
     this.log.info(`Set temperature to ${temperature}`);
     this.setManualMode();
-    await this.delay(1_000);
+    await this.delay(FireplaceController.MODE_CHANGE_DELAY);
     this.resetFlameHeight();
-    await this.delay(5_000);
+    await this.delay(FireplaceController.FLAME_RESET_DELAY);
     this.setTemperatureMode();
     if (this?.lastStatus?.targetTemperature !== temperature) {
-      await this.delay(5_000);
+      await this.delay(FireplaceController.MODE_SETTLE_DELAY);
       await this.setTemperatureValue(temperature);
     }
   }
@@ -214,7 +218,7 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     const value = TemperatureRangeUtils.toBits(temperature);
     const msg = '42324644303' + value + '03';
     this.sendCommand(msg);
-    await this.delay(1_000);
+    await this.delay(FireplaceController.COMMAND_SETTLE_DELAY);
   }
 
   async setMode(request: IRequest): Promise<boolean> {
@@ -238,14 +242,16 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     switch(mode) {
       case OperationMode.Manual:
         this.setManualMode();
-        this.setFlameHeight(targetTemperature);
+        await this.delay(FireplaceController.MODE_CHANGE_DELAY);
+        await this.setFlameHeight(targetTemperature);
         break;
       case OperationMode.Eco:
-        this.setFlameHeight(targetTemperature);
+        await this.setFlameHeight(targetTemperature);
         this.setEcoMode();
+        await this.delay(FireplaceController.MODE_SETTLE_DELAY);
         break;
       case OperationMode.Temperature:
-        this.setTemperature(targetTemperature);
+        await this.setTemperature(targetTemperature);
         break;
       case OperationMode.Off:
         await this.guardFlameOff();

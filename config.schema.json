@@ -1,8 +1,8 @@
 {
-  "pluginAlias": "MertikFireplace",
+  "pluginAlias": "MertikFireplaceMyFire",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Fireplaces are exposed as separate accessories, each fireplace needs to be configured correctly, with a static ip.",
+  "headerDisplay": "Expose Mertik fireplaces as separate MyFire-friendly accessories. Each fireplace should be configured with a static IP.",
   "schema": {
     "fireplaces": {
       "type": "array",
@@ -20,7 +20,7 @@
             "type": "string",
             "placeholder": "192.168.x.x",
             "required": true,
-            "description": "See: https://github.com/tritter/homebridge-mertik-fireplace"
+            "description": "See: https://github.com/smathur11/homebridge-mertik-fireplace-myfire"
           }
         }
       }

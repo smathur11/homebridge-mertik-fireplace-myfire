@@ -1,9 +1,9 @@
 /**
  * This is the name of the platform that users will use to register the plugin in the Homebridge config.json
  */
-export const PLATFORM_NAME = 'MertikFireplace';
+export const PLATFORM_NAME = 'MertikFireplaceMyFire';
 
 /**
  * This must match the name of your plugin as defined the package.json
  */
-export const PLUGIN_NAME = 'homebridge-mertik-fireplace';
+export const PLUGIN_NAME = 'homebridge-mertik-fireplace-myfire';
