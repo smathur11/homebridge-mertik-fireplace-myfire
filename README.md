@@ -5,7 +5,7 @@
 
 Homebridge plugin for controlling Mertik / Maxitrol WiFi fireplace controllers with a Home app layout that works better alongside the MyFire app.
 
-![Sample fireplace controller](.img/sample.jpg)
+![MyFire plugin in Apple Home](.img/myfire-plugin-home.png)
 
 ## What This Fork Changes
 
