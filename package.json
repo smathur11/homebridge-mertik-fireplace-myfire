@@ -1,13 +1,14 @@
 {
   "displayName": "Homebridge Mertik Fireplace MyFire",
   "name": "homebridge-mertik-fireplace-myfire",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Controls Mertik Fireplace Wifi controllers, connecting real fire with Homebridge.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/smathur11/homebridge-mertik-fireplace-myfire.git"
+    "url": "https://github.com/smathur11/homebridge-mertik-fireplace-myfire.git"
   },
+  "homepage": "https://github.com/smathur11/homebridge-mertik-fireplace-myfire",
   "bugs": {
     "url": "https://github.com/smathur11/homebridge-mertik-fireplace-myfire/issues"
   },
