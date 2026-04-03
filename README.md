@@ -83,6 +83,27 @@ If you are moving from `homebridge-mertik-fireplace` or an earlier local custom 
 4. Update your config to use `"platform": "MertikFireplaceMyFire"`.
 5. Restart Homebridge and add the accessories again.
 
+## Release Process
+
+This repo includes a GitHub Actions workflow that creates a GitHub release automatically when you push a tag matching:
+
+```bash
+myfire-v*
+```
+
+Typical flow:
+
+1. Bump `package.json` to the new version.
+2. Publish the package to npm.
+3. Create a matching tag such as `myfire-v1.0.3`.
+4. Push the tag to GitHub:
+
+```bash
+git push origin myfire-v1.0.3
+```
+
+GitHub Actions will create the release and generate release notes automatically.
+
 ## Configuration Options
 
 | Key | Default | Description |
