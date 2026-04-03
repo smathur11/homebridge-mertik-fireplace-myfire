@@ -142,6 +142,13 @@ export class FireplacePlatformAccessory {
     currentState.onGet(() => this.modeCurrentHeatingCoolingStateValue(this.getStatus()));
     targetState.onGet(() => this.modeTargetHeatingCoolingStateValue(this.getStatus()));
     targetState.onSet((value) => {
+      const status = this.getStatus();
+      if (this.effectiveMode(status) === OperationMode.Off) {
+        this.platform.log.debug('Ignoring mode change while fireplace is off');
+        currentState.updateValue(this.modeCurrentHeatingCoolingStateValue(status));
+        targetState.updateValue(this.modeTargetHeatingCoolingStateValue(status));
+        return;
+      }
       this.shared.request.setMode(this.operationModeFromHeatingCoolingState(value));
     });
     currentTemperature.onGet(() => this.displayCurrentTemperatureValue(this.getStatus()));

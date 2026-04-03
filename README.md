@@ -17,6 +17,7 @@ The main differences in this fork are:
 - Uses faster command timing for mode, flame, and target temperature changes
 - Provides a finer-grained 12-step flame level control
 - Keeps the original conservative on/off timing for fireplace safety transitions
+- Keeps the main `Fireplace` switch as the only control that can power the fireplace on
 
 ## Compatibility
 
@@ -32,6 +33,7 @@ Each configured fireplace is exposed as separate accessories:
   - `Heat` = Manual
   - `Auto` = Temperature
   - `Cool` = Eco
+  - only changes mode while the fireplace is already on
 - `Fireplace Target Temp`: thermostat for target temperature changes
 - `Fireplace Flame Level`: fan-speed style flame control
 - `Fireplace Connected`: contact sensor for reachability / automations
@@ -92,6 +94,8 @@ If you are moving from `homebridge-mertik-fireplace` or an earlier local custom 
 
 ## Notes
 
+- The main `Fireplace` switch is the only control that powers the fireplace on, and it defaults to Manual mode.
+- Mode changes are ignored while the fireplace is off.
 - Flame level changes only apply while the fireplace is already in Manual mode.
 - Target temperature changes only apply while the fireplace is in Temperature mode.
 - The plugin expects each fireplace controller to keep a stable IP address.
