@@ -16,6 +16,7 @@ export interface IRequestController {
 export class RequestController implements IRequestController{
   private busy = false;
   private scheduledRequest?: IRequest;
+  private inFlightRequest?: IRequest;
   private scheduledDelay = 10_000;
   private sendTask?: NodeJS.Timeout;
   private lockTask?: NodeJS.Timeout;
@@ -36,7 +37,7 @@ export class RequestController implements IRequestController{
   }
 
   currentRequest() {
-    return this.scheduledRequest;
+    return this.scheduledRequest ?? this.inFlightRequest;
   }
 
   clearScheduledLock() {
@@ -86,16 +87,26 @@ export class RequestController implements IRequestController{
     const mergedRequest = this.scheduledRequest ? {...this.scheduledRequest, ...request} : request;
     this.scheduledRequest = mergedRequest;
     this.scheduledDelay = hasExistingTask ? Math.min(this.scheduledDelay, delay) : delay;
-    this.sendTask = setTimeout(() => this.sendRequest(mergedRequest), this.scheduledDelay);
+    if (!this.busy) {
+      this.sendTask = setTimeout(() => this.sendRequest(), this.scheduledDelay);
+    }
   }
 
-  private async sendRequest(request: IRequest, retry = false) {
-    if (!this.busy) {
-      this.clearScheduledTask();
+  private async sendRequest(retry = false) {
+    if (this.busy) {
+      return;
     }
+    this.clearScheduledTask();
+
+    const request = this.scheduledRequest;
+    if (!request) {
+      this.scheduledDelay = 10_000;
+      return;
+    }
+
     if (!this.isAllowed()) {
       if (!retry) {
-        setTimeout(() => this.sendRequest(request, true), 10_000);
+        this.sendTask = setTimeout(() => this.sendRequest(true), 10_000);
         return;
       }
 
@@ -103,14 +114,28 @@ export class RequestController implements IRequestController{
       this.scheduledRequest = undefined;
       return;
     }
+
     this.log.debug(`Request: ${JSON.stringify(request)}`);
-    this.busy = true;
-    const success = await this.fireplace.request(request);
-    if (!success) {
-      this.scheduleRequest(request, this.scheduledDelay);
-    }
     this.scheduledRequest = undefined;
-    this.scheduledDelay = 10_000;
-    this.busy = false;
+    this.inFlightRequest = request;
+    this.busy = true;
+    try {
+      const success = await this.fireplace.request(request);
+      if (!success) {
+        this.scheduleRequest(request, this.scheduledDelay);
+      }
+    } catch (error) {
+      this.log.error(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.scheduleRequest(request, this.scheduledDelay);
+    } finally {
+      this.inFlightRequest = undefined;
+      this.busy = false;
+      if (this.scheduledRequest && this.sendTask === undefined) {
+        this.sendTask = setTimeout(() => this.sendRequest(), this.scheduledDelay);
+      }
+      if (!this.scheduledRequest) {
+        this.scheduledDelay = 10_000;
+      }
+    }
   }
 }

@@ -19,10 +19,13 @@
             "title": "IP of the devices, should be static",
             "type": "string",
             "placeholder": "192.168.x.x",
-            "required": true,
             "description": "See: https://github.com/smathur11/homebridge-mertik-fireplace-myfire"
           }
-        }
+        },
+        "required": [
+          "name",
+          "ip"
+        ]
       }
     }
   }

@@ -26,7 +26,7 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   private height = FlameHeight.Step11;
   private statusTimer: NodeJS.Timeout | undefined;
   private client: Socket | null = null;
-  private lastContact: Date = new Date();
+  private lastContact: Date | undefined;
   private lastStatus: FireplaceStatus | undefined;
   private igniting = false;
   private shuttingDown = false;
@@ -168,6 +168,9 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   }
 
   reachable(): boolean {
+    if (!this.lastContact) {
+      return false;
+    }
     const now = new Date().getTime();
     const last = this.lastContact.getTime();
     return (now - last) < FireplaceController.UNREACHABLE_TIMEOUT;
@@ -267,34 +270,37 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
 
   async request(request: IRequest): Promise<boolean> {
     let succeeds = true;
-    const currentMode = this.lastStatus?.mode || OperationMode.Off;
     this.stopStatusSubscription();
-    if (request.mode !== undefined
-      && request.mode !== currentMode) {
-      succeeds = await this.setMode(request);
-    } else if (request.temperature !== undefined
-      && (request.mode === OperationMode.Temperature || this.lastStatus?.mode === OperationMode.Temperature)) {
-      if (request.temperature <= 0.0) {
-        await this.standBy();
-      } else {
-        await this.setTemperature(request.temperature);
+    try {
+      const currentMode = this.lastStatus?.mode || OperationMode.Off;
+      if (request.mode !== undefined
+        && request.mode !== currentMode) {
+        succeeds = await this.setMode(request);
+      } else if (request.temperature !== undefined
+        && (request.mode === OperationMode.Temperature || this.lastStatus?.mode === OperationMode.Temperature)) {
+        if (request.temperature <= 0.0) {
+          await this.standBy();
+        } else {
+          await this.setTemperature(request.temperature);
+        }
+      } else if (request.temperature !== undefined
+        && (request.mode === OperationMode.Manual || request.mode === OperationMode.Eco
+          || this.lastStatus?.mode === OperationMode.Manual || this.lastStatus?.mode === OperationMode.Eco)) {
+        if (request.temperature <= 0.0) {
+          await this.standBy();
+        } else {
+          await this.setFlameHeight(request.temperature);
+        }
       }
-    } else if (request.temperature !== undefined
-       && (request.mode === OperationMode.Manual || request.mode === OperationMode.Eco
-        || this.lastStatus?.mode === OperationMode.Manual || this.lastStatus?.mode === OperationMode.Eco)) {
-      if (request.temperature <= 0.0) {
-        await this.standBy();
-      } else {
-        await this.setFlameHeight(request.temperature);
-      }
-    }
-    await this.delay(5_000);
-    if ((!request.temperature || request.temperature > 0.0) && request.auxOn !== undefined) {
-      await this.delay(8_000);
-      this.setAux(request.auxOn);
       await this.delay(5_000);
+      if ((!request.temperature || request.temperature > 0.0) && request.auxOn !== undefined) {
+        await this.delay(8_000);
+        this.setAux(request.auxOn);
+        await this.delay(5_000);
+      }
+      return succeeds;
+    } finally {
+      this.startStatusSubscription();
     }
-    this.startStatusSubscription();
-    return succeeds;
   }
 }

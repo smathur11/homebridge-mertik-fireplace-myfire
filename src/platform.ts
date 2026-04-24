@@ -48,12 +48,18 @@ export class MertikPlatform implements DynamicPlatformPlugin {
   configureDevices() {
     const configuredDevices: IDeviceConfig[] = this.config['fireplaces'] ?? [];
     const desiredAccessoryIds = new Set<string>();
+    const configuredNames = new Set<string>();
 
     for (const configuredDevice of configuredDevices) {
       if (!configuredDevice.name) {
         this.log.error('No valid fireplace name given!');
         continue;
       }
+      if (configuredNames.has(configuredDevice.name)) {
+        this.log.error(`Duplicate fireplace name "${configuredDevice.name}" ignored. Each configured fireplace needs a unique name.`);
+        continue;
+      }
+      configuredNames.add(configuredDevice.name);
 
       const shared = FireplacePlatformAccessory.createSharedDevice(this, configuredDevice);
       const accessoriesToRegister: ManagedAccessory[] = [];
