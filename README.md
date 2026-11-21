@@ -85,7 +85,7 @@ If you are moving from `homebridge-mertik-fireplace` or an earlier local custom 
 
 ## Release Process
 
-This repo includes a GitHub Actions workflow that creates a GitHub release automatically when you push a tag matching:
+GitHub Actions publishes to npm using Trusted Publishing and creates a GitHub release when you push a tag matching:
 
 ```bash
 myfire-v*
@@ -94,15 +94,20 @@ myfire-v*
 Typical flow:
 
 1. Bump `package.json` to the new version.
-2. Publish the package to npm.
-3. Create a matching tag such as `myfire-v1.0.3`.
-4. Push the tag to GitHub:
+2. Commit and push the version bump and release changes.
+3. Create a matching tag and push it to GitHub:
 
 ```bash
-git push origin myfire-v1.0.3
+git push origin myfire-v1.0.5
 ```
 
 GitHub Actions will create the release and generate release notes automatically.
+
+## What's New in 1.0.5
+
+- Apple Home's Flame Level slider accepts and displays exactly 100%, with requests mapped to the existing 12 valve settings.
+- After a confirmed shutdown, the displayed flame estimate starts at full on the next startup.
+- Homebridge debug logs include requested percentages, controller acknowledgements or receiver errors when received, and reported valve output for troubleshooting.
 
 ## Configuration Options
 

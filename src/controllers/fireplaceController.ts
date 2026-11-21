@@ -83,6 +83,13 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
 
   private processStatusResponse(response: string) {
     const newStatus = new FireplaceStatus(response);
+    const output = response.slice(14, 16);
+    this.log.debug(`Fireplace status: ${newStatus.toString()} reported valve output: ${
+      /^[0-9a-f]{2}$/i.test(output) ? `0x${output}` : 'unknown'}`);
+    if (newStatus.mode === OperationMode.Off && !newStatus.guardFlameOn
+      && !newStatus.igniting && !newStatus.shuttingDown) {
+      this.height = FlameHeight.Step11;
+    }
     this.lastContact = new Date();
     this.igniting = newStatus.igniting;
     this.shuttingDown = newStatus.shuttingDown;
@@ -144,10 +151,29 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
       this.client = new net.Socket();
       this.client.connect(2000, ip);
       this.client.setTimeout(FireplaceController.REFRESH_TIMEOUT);
-      this.client.on('data', (data) => {
-        const tempData = data.toString().substring(1, data.length - 1);
-        if (tempData.length === FireplaceController.STATUS_PACKET_LENGTH) {
-          this.processStatusResponse(tempData);
+      let pending = '';
+      this.client.on('data', (data: Buffer) => {
+        pending += data.toString('latin1');
+        let end = pending.indexOf('\x03');
+        while (end !== -1) {
+          const start = pending.lastIndexOf('\x02', end);
+          if (start !== -1) {
+            const reply = pending.slice(start + 1, end);
+            if (reply.length === FireplaceController.STATUS_PACKET_LENGTH) {
+              this.processStatusResponse(reply);
+            } else if (/^3030303000E101$/i.test(reply)) {
+              this.log.debug('Fireplace reply: no receiver (E101)');
+            } else if (/^3030303000[0-9a-f]{2}$/i.test(reply)) {
+              this.log.debug(`Fireplace acknowledgement: command ${reply.slice(-2)}`);
+            } else {
+              this.log.debug(`Unrecognized fireplace reply (${reply.length} bytes)`);
+            }
+          }
+          pending = pending.slice(end + 1);
+          end = pending.indexOf('\x03');
+        }
+        if (pending.length > 4096) {
+          pending = '';
         }
       });
       this.client.on('error', (err) => {

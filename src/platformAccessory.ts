@@ -20,9 +20,9 @@ interface SharedFireplaceDevice {
 }
 
 const FLAME_LEVEL_COUNT = 12;
-const FLAME_LEVEL_PERCENT_STEP = 100 / (FLAME_LEVEL_COUNT - 1);
 const FLAME_LEVEL_TEMPERATURES = Array.from({ length: FLAME_LEVEL_COUNT }, (_, index) => 5 + ((31 * index) / (FLAME_LEVEL_COUNT - 1)));
-const FLAME_LEVEL_PERCENTAGES = Array.from({ length: FLAME_LEVEL_COUNT }, (_, index) => index * FLAME_LEVEL_PERCENT_STEP);
+const FLAME_LEVEL_PERCENTAGES = Array.from({ length: FLAME_LEVEL_COUNT },
+  (_, index) => Math.round(index * 100 / (FLAME_LEVEL_COUNT - 1)));
 
 export class FireplacePlatformAccessory {
   constructor(
@@ -214,13 +214,14 @@ export class FireplacePlatformAccessory {
     speed.setProps({
       minValue: 0,
       maxValue: 100,
-      minStep: FLAME_LEVEL_PERCENT_STEP,
+      minStep: 1,
     });
 
     on.onGet(() => this.flameActiveValue(this.getStatus()));
     on.onSet(() => undefined);
     speed.onGet(() => this.flameLevelValue(this.getStatus()));
     speed.onSet((value) => {
+      this.platform.log.debug(`Apple Home requested flame level: ${value}%`);
       const status = this.getStatus();
       if (this.effectiveMode(status) !== OperationMode.Manual) {
         this.platform.log.debug('Ignoring flame level change outside manual mode');
@@ -345,7 +346,7 @@ export class FireplacePlatformAccessory {
     if (currentRequest?.temperature !== undefined) {
       return this.flameLevelFromTemperature(currentRequest.temperature);
     }
-    return FlameHeightUtils.toPercentage(this.shared.fireplace.getFlameHeight()) * 100;
+    return Math.round(FlameHeightUtils.toPercentage(this.shared.fireplace.getFlameHeight()) * 100);
   }
 
   private flameLevelFromTemperature(temperature: number): number {
