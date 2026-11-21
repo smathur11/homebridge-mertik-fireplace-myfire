@@ -213,14 +213,16 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     this.sendCommand(msg);
   }
 
-  async setFlameHeight(temperature: number) {
+  async setFlameHeight(temperature: number, resetFirst = false) {
     const percentage = ((temperature) - 5) / 31;
     this.log.debug(`Set flame height to percentage: ${percentage}`);
     const height = FlameHeightUtils.ofPercentage(percentage);
     this.log.info(`Set flame height to ${height.toString()}`);
     this.height = height;
-    this.resetFlameHeight();
-    await this.delay(FireplaceController.FLAME_RESET_DELAY);
+    if (resetFirst) {
+      this.resetFlameHeight();
+      await this.delay(FireplaceController.FLAME_RESET_DELAY);
+    }
     const msg = '3136' + height + '03';
     this.sendCommand(msg);
     await this.delay(FireplaceController.COMMAND_SETTLE_DELAY);
@@ -272,10 +274,10 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
       case OperationMode.Manual:
         this.setManualMode();
         await this.delay(FireplaceController.MODE_CHANGE_DELAY);
-        await this.setFlameHeight(targetTemperature);
+        await this.setFlameHeight(targetTemperature, true);
         break;
       case OperationMode.Eco:
-        await this.setFlameHeight(targetTemperature);
+        await this.setFlameHeight(targetTemperature, true);
         this.setEcoMode();
         await this.delay(FireplaceController.MODE_SETTLE_DELAY);
         break;

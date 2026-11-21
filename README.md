@@ -98,10 +98,14 @@ Typical flow:
 3. Create a matching tag and push it to GitHub:
 
 ```bash
-git push origin myfire-v1.0.5
+git push origin myfire-v1.0.6
 ```
 
 GitHub Actions will create the release and generate release notes automatically.
+
+## What's New in 1.0.6
+
+- Flame Level adjustments send a single command for the selected valve setting. Debug logs still show controller replies and reported valve output.
 
 ## What's New in 1.0.5
 
