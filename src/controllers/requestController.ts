@@ -10,6 +10,7 @@ export interface IRequestController {
   setAux(on: boolean): void;
   setMode(mode: OperationMode): void;
   setTemperature(temperature: number): void;
+  setFlameLevel(temperature: number): void;
   currentRequest(): IRequest | undefined;
 }
 
@@ -20,6 +21,8 @@ export class RequestController implements IRequestController{
   private scheduledDelay = 10_000;
   private sendTask?: NodeJS.Timeout;
   private lockTask?: NodeJS.Timeout;
+  private flameTask?: NodeJS.Timeout;
+  private pendingFlameLevel?: number;
 
   constructor(
     public readonly log: Logger,
@@ -37,7 +40,9 @@ export class RequestController implements IRequestController{
   }
 
   currentRequest() {
-    return this.scheduledRequest ?? this.inFlightRequest;
+    return this.pendingFlameLevel === undefined
+      ? this.scheduledRequest ?? this.inFlightRequest
+      : {temperature: this.pendingFlameLevel};
   }
 
   clearScheduledLock() {
@@ -66,11 +71,31 @@ export class RequestController implements IRequestController{
   }
 
   setMode(mode: OperationMode) {
+    clearTimeout(this.flameTask);
+    this.pendingFlameLevel = undefined;
     this.scheduleRequest({mode}, 500);
   }
 
   setTemperature(temperature: number) {
     this.scheduleRequest({temperature}, 500);
+  }
+
+  setFlameLevel(temperature: number) {
+    clearTimeout(this.flameTask);
+    const latestRequest = this.scheduledRequest ?? this.inFlightRequest;
+    if (latestRequest?.temperature === temperature) {
+      this.pendingFlameLevel = undefined;
+      return;
+    }
+
+    this.pendingFlameLevel = temperature;
+    this.flameTask = setTimeout(() => {
+      this.pendingFlameLevel = undefined;
+      const latestRequest = this.scheduledRequest ?? this.inFlightRequest;
+      if (latestRequest?.temperature !== temperature) {
+        this.scheduleRequest({temperature}, 0);
+      }
+    }, 1000);
   }
 
   clearScheduledTask() {

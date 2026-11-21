@@ -227,7 +227,7 @@ export class FireplacePlatformAccessory {
         this.platform.log.debug('Ignoring flame level change outside manual mode');
         return;
       }
-      this.shared.request.setTemperature(this.temperatureFromFlameLevel(value as number));
+      this.shared.request.setFlameLevel(this.temperatureFromFlameLevel(value as number));
     });
 
     this.shared.fireplace.on('status', (status) => {
