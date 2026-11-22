@@ -9,6 +9,7 @@ export interface IRequestController {
   lock(): void;
   setAux(on: boolean): void;
   setMode(mode: OperationMode): void;
+  powerOn(): void;
   setTemperature(temperature: number): void;
   setFlameLevel(temperature: number): void;
   currentRequest(): IRequest | undefined;
@@ -73,7 +74,17 @@ export class RequestController implements IRequestController{
   setMode(mode: OperationMode) {
     clearTimeout(this.flameTask);
     this.pendingFlameLevel = undefined;
-    this.scheduleRequest({mode}, 500);
+    if (mode === OperationMode.Off) {
+      this.clearScheduledTask();
+      this.scheduledRequest = undefined;
+      this.scheduleRequest({mode}, 0);
+      return;
+    }
+    this.scheduleRequest({mode, allowIgnition: false}, 500);
+  }
+
+  powerOn() {
+    this.scheduleRequest({mode: OperationMode.Manual, allowIgnition: true}, 500);
   }
 
   setTemperature(temperature: number) {
@@ -104,6 +115,9 @@ export class RequestController implements IRequestController{
   }
 
   private scheduleRequest(request: IRequest, delay = 10_000) {
+    if (this.scheduledRequest?.mode === OperationMode.Off) {
+      return;
+    }
     const hasExistingTask = this.sendTask !== undefined;
     if (hasExistingTask) {
       this.clearScheduledTask();
@@ -129,7 +143,7 @@ export class RequestController implements IRequestController{
       return;
     }
 
-    if (!this.isAllowed()) {
+    if (request.mode !== OperationMode.Off && !this.isAllowed()) {
       if (!retry) {
         this.sendTask = setTimeout(() => this.sendRequest(true), 10_000);
         return;
@@ -146,12 +160,14 @@ export class RequestController implements IRequestController{
     this.busy = true;
     try {
       const success = await this.fireplace.request(request);
-      if (!success) {
+      if (!success && !this.scheduledRequest && !request.allowIgnition) {
         this.scheduleRequest(request, this.scheduledDelay);
       }
     } catch (error) {
       this.log.error(`Request failed: ${error instanceof Error ? error.message : String(error)}`);
-      this.scheduleRequest(request, this.scheduledDelay);
+      if (!this.scheduledRequest && !request.allowIgnition) {
+        this.scheduleRequest(request, this.scheduledDelay);
+      }
     } finally {
       this.inFlightRequest = undefined;
       this.busy = false;

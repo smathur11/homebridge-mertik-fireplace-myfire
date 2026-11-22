@@ -257,14 +257,20 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   async setMode(request: IRequest): Promise<boolean> {
     const mode = request.mode!;
     const currentMode = this.lastStatus?.mode || OperationMode.Off;
+    if (mode === OperationMode.Off) {
+      await this.guardFlameOff();
+      return true;
+    }
     if (this.igniting) {
       this.log.debug('Ignore as we are igniting the fireplace first!');
       return false;
     }
-    if (OperationModeUtils.needsIgnite(mode) && currentMode === OperationMode.Off && !this.lastStatus?.guardFlameOn) {
-      this.log.info('Ignite fireplace');
-      await this.igniteFireplace();
-      return false;
+    if (OperationModeUtils.needsIgnite(mode) && currentMode === OperationMode.Off) {
+      if (request.allowIgnition && !this.lastStatus?.guardFlameOn && !this.shuttingDown) {
+        this.log.info('Ignite fireplace');
+        await this.igniteFireplace();
+      }
+      return true;
     }
     if (currentMode === mode) {
       this.log.debug('Ignore same mode!');
@@ -286,9 +292,6 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
       case OperationMode.Temperature:
         await this.setTemperature(targetTemperature);
         break;
-      case OperationMode.Off:
-        await this.guardFlameOff();
-        break;
     }
     return true;
   }
@@ -304,7 +307,7 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     try {
       const currentMode = this.lastStatus?.mode || OperationMode.Off;
       if (request.mode !== undefined
-        && request.mode !== currentMode) {
+        && (request.mode === OperationMode.Off || request.mode !== currentMode)) {
         succeeds = await this.setMode(request);
       } else if (request.temperature !== undefined
         && (request.mode === OperationMode.Temperature || this.lastStatus?.mode === OperationMode.Temperature)) {

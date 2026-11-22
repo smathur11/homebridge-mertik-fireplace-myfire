@@ -104,7 +104,7 @@ export class FireplacePlatformAccessory {
     on.onSet((value) => {
       const status = this.getStatus();
       if ((value as boolean) && this.effectiveMode(status) === OperationMode.Off) {
-        this.shared.request.setMode(OperationMode.Manual);
+        this.shared.request.powerOn();
       } else if (!(value as boolean) && this.effectiveMode(status) !== OperationMode.Off) {
         this.shared.request.setMode(OperationMode.Off);
       }

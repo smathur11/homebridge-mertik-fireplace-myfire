@@ -1,7 +1,7 @@
 {
   "displayName": "Homebridge Mertik Fireplace MyFire",
   "name": "homebridge-mertik-fireplace-myfire",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Controls Mertik Fireplace Wifi controllers, connecting real fire with Homebridge.",
   "license": "Apache-2.0",
   "repository": {
@@ -27,6 +27,7 @@
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "watch": "npm run build && npm link && nodemon",
     "build": "rimraf ./dist && tsc",
+    "test": "node --test test/*.test.cjs",
     "prepublishOnly": "npm run lint && npm run build"
   },
   "keywords": [
