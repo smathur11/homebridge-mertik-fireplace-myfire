@@ -33,6 +33,7 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   private lostConnection = false;
   private static UNREACHABLE_TIMEOUT = 1000 * 60 * 5; //5 min
   private static REFRESH_TIMEOUT = 1000 * 15; //15 seconds
+  private static SOCKET_IDLE_TIMEOUT = 1000 * 30;
   private static STATUS_PACKET_LENGTH = 106; //characters
   private static MODE_CHANGE_DELAY = 500;
   private static FLAME_RESET_DELAY = 1000;
@@ -50,7 +51,7 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   private startStatusSubscription(): void {
     this.stopStatusSubscription();
     this.log.debug('Start requesting status');
-    this.client = null;
+    this.closeClient();
     this.statusTimer = setInterval((e) => e.refreshStatus(), FireplaceController.REFRESH_TIMEOUT, this);
   }
 
@@ -82,6 +83,13 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
   }
 
   private processStatusResponse(response: string) {
+    if (!/^(?:303030300003|030300000003)/.test(response)
+      || !/^[0-9a-f]{4}$/i.test(response.slice(16, 20))
+      || !/^[012]$/.test(response.slice(24, 25))
+      || !/^[0-9a-f]{8}$/i.test(response.slice(28, 36))) {
+      this.log.debug('Ignoring invalid or transitional fireplace status reply');
+      return;
+    }
     const newStatus = new FireplaceStatus(response);
     const output = response.slice(14, 16);
     this.log.debug(`Fireplace status: ${newStatus.toString()} reported valve output: ${
@@ -144,20 +152,33 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     return this.sendCommand('4232303103');
   }
 
+  private closeClient(client = this.client): void {
+    if (this.client === client) {
+      this.client = null;
+    }
+    client?.destroy();
+  }
+
+  private createSocket(): Socket {
+    return new net.Socket();
+  }
+
   private ensureClient(): Socket {
     const ip = this.config.ip;
     this.log.debug(`Using ip:'${ip}'`);
-    if (!this.client
-      || (typeof(this.client) === 'undefined') || (typeof(this.client.destroyed) !== 'boolean') || (this.client.destroyed === true)) {
+    if (!this.client || this.client.destroyed) {
       this.log.debug('Created socket');
-      this.client = new net.Socket();
-      this.client.connect(2000, ip);
-      this.client.setTimeout(FireplaceController.REFRESH_TIMEOUT);
+      const client = this.createSocket();
+      this.client = client;
+      client.setTimeout(FireplaceController.SOCKET_IDLE_TIMEOUT);
       let pending = '';
-      this.client.on('data', (data: Buffer) => {
+      client.on('data', (data: Buffer) => {
+        if (this.client !== client || client.destroyed) {
+          return;
+        }
         pending += data.toString('latin1');
         let end = pending.indexOf('\x03');
-        while (end !== -1) {
+        while (end !== -1 && this.client === client && !client.destroyed) {
           const start = pending.lastIndexOf('\x02', end);
           if (start !== -1) {
             const reply = pending.slice(start + 1, end);
@@ -178,12 +199,22 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
           pending = '';
         }
       });
-      this.client.on('error', (err) => {
+      client.on('error', (err) => {
         this.log.debug('Socket error: ' + err.message);
-        if (this.client && typeof(this.client.destroy) === 'function') {
-          this.client.destroy();
+        this.closeClient(client);
+      });
+      client.on('timeout', () => this.closeClient(client));
+      client.on('close', () => {
+        if (this.client === client) {
+          this.client = null;
         }
       });
+      try {
+        client.connect(2000, ip);
+      } catch (error) {
+        this.closeClient(client);
+        throw error;
+      }
     }
     return this.client;
   }

@@ -103,6 +103,11 @@ git push origin myfire-v1.0.6
 
 GitHub Actions will create the release and generate release notes automatically.
 
+## What's New in 1.0.11
+
+- Validate status replies before updating fireplace state or reachability.
+- Close replaced or idle controller connections and ignore late data from retired sockets.
+
 ## What's New in 1.0.10
 
 - Only the main Fireplace power switch can request ignition.
