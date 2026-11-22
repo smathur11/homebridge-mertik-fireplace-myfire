@@ -103,6 +103,10 @@ git push origin myfire-v1.0.6
 
 GitHub Actions will create the release and generate release notes automatically.
 
+## What's New in 1.0.8
+
+- In Manual mode, Apple Home's Flame Level follows the reported valve output, rounded to the nearest supported step. Pending requests take priority until they finish.
+
 ## What's New in 1.0.7
 
 - Flame Level waits one second after the latest slider input and combines repeated values to reduce extra valve commands.

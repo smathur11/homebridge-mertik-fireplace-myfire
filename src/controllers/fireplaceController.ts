@@ -89,6 +89,8 @@ export class FireplaceController extends EventEmitter implements IFireplaceContr
     if (newStatus.mode === OperationMode.Off && !newStatus.guardFlameOn
       && !newStatus.igniting && !newStatus.shuttingDown) {
       this.height = FlameHeight.Step11;
+    } else if (newStatus.mode === OperationMode.Manual && !newStatus.igniting && !newStatus.shuttingDown) {
+      this.height = FlameHeightUtils.fromReportedOutput(output) ?? this.height;
     }
     this.lastContact = new Date();
     this.igniting = newStatus.igniting;

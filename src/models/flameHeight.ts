@@ -18,6 +18,21 @@ export class FlameHeightUtils {
   private static readonly definedValues: FlameHeight[] = Object.values(FlameHeight)
     .filter((value): value is FlameHeight => value !== FlameHeight.StepUndefined);
 
+  public static fromReportedOutput(output: string): FlameHeight | undefined {
+    if (!/^[0-9a-f]{2}$/i.test(output)) {
+      return undefined;
+    }
+    const position = parseInt(output, 16);
+    // Observed outputs below 0x69 can represent standby or an inactive burner.
+    if (position < 0x69) {
+      return undefined;
+    }
+    const distance = (height: FlameHeight) => Math.abs(
+      parseInt(Buffer.from(height, 'hex').toString('ascii'), 16) - position,
+    );
+    return this.definedValues.reduce((nearest, height) => distance(height) < distance(nearest) ? height : nearest);
+  }
+
   public static ofPercentage(value: number) : FlameHeight {
     const clamped = Math.max(0, Math.min(1, value));
     const fullSteps = FlameHeightUtils.definedValues.length - 1;
